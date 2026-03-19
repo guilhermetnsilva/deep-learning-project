@@ -5,9 +5,10 @@ Deep learning project for classifying paintings by artist using Transfer Learnin
 ## Structure
 
 ```
-wikiart/
+deep-learning-project/
 ├── wikiart_classification.ipynb   # Main notebook (EDA + training + evaluation)
-├── figures/                       # Figures generated during exploratory analysis
+├── requirements.txt               # Python dependencies
+├── figures/                       # Figures generated during EDA
 │   ├── class_distribution.png
 │   ├── rgb_per_artist.png
 │   ├── brightness_per_artist.png
@@ -17,7 +18,7 @@ wikiart/
 └── README.md
 ```
 
-> Dataset (`wikiart/`), checkpoints, and outputs are excluded from the repository via `.gitignore`.
+> Dataset (`wikiart/`), split folders (`wikiart_split/`), checkpoints, and outputs are excluded from the repository via `.gitignore`.
 
 ## Problem
 
@@ -73,9 +74,12 @@ Input (224×224×3)
 | Python | 3.x |
 | TensorFlow | 2.20.0 |
 | Keras | 3.13.2 |
-| scikit-learn | — |
-| OpenCV | — |
-| Pillow | — |
+| NumPy | 2.4.2 |
+| scikit-learn | 1.8.0 |
+| OpenCV | 4.13.0 |
+| Pillow | 12.1.1 |
+| Matplotlib | 3.10.8 |
+| Seaborn | 0.13.2 |
 
 ## Getting Started
 
@@ -85,10 +89,12 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # 2. Install dependencies
-pip install tensorflow keras scikit-learn opencv-python pillow matplotlib seaborn
+pip install -r requirements.txt
 
 # 3. Place the dataset under wikiart/<artist>/*.jpg
 
 # 4. Open the notebook
 jupyter notebook wikiart_classification.ipynb
 ```
+
+> On the first run, the notebook splits the dataset into `wikiart_split/train`, `wikiart_split/val`, and `wikiart_split/test` and copies the images there. Subsequent runs load directly from those folders.
