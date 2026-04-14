@@ -1,8 +1,14 @@
-# DATA EXPLORATION FUNCTIONS
-
 # Imports
+import os
 import numpy as np
+import tensorflow as tf
+import keras
+from keras import layers, optimizers, callbacks
+from keras.layers import LeakyReLU
 
+
+
+# DATA EXPLORATION FUNCTIONS
 
 def summarize(name, data, unit=""):
     data = np.array(data)
@@ -11,3 +17,175 @@ def summarize(name, data, unit=""):
     print(f"Max  : {data.max():.1f}{unit}")
     print(f"Mean : {data.mean():.1f}{unit}")
     print(f"Std  : {data.std():.1f}{unit}")
+
+
+# MODELING FUNCTIONS
+
+
+# DEF FUNCTION TO RESIZE IMAGES IN DATASET
+def build_resized_ds(train_ds, val_ds, image_model_size):
+    def resize_fn(image, label):
+        image = tf.image.resize(image, [image_model_size, image_model_size])
+        return image, label
+
+    train_ds = train_ds.map(resize_fn, num_parallel_calls=AUTOTUNE)
+    val_ds = val_ds.map(resize_fn, num_parallel_calls=AUTOTUNE)
+
+    return train_ds, val_ds
+
+# DEF PREPROCESSING FUNCTION FOR DIFFERENT MODELS
+def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, batch_size=32):
+    def apply_preprocess_img(image, label):
+        image = preprocess_fn(image)
+        return image, label
+
+    t_ds = (train_resized
+            .map(apply_preprocess_img, num_parallel_calls=AUTOTUNE)
+            .batch(batch_size)
+            .prefetch(AUTOTUNE))
+    v_ds = (val_resized
+            .map(apply_preprocess_img, num_parallel_calls=AUTOTUNE)
+            .batch(batch_size)
+            .prefetch(AUTOTUNE))
+    return t_ds, v_ds
+
+
+
+
+
+
+
+
+class SparseF1Score(keras.metrics.F1Score):
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # converte inteiros → one-hot antes de passar ao F1Score
+        y_true_onehot = tf.one_hot(tf.cast(y_true, tf.int32), depth=NUM_CLASSES)
+        return super().update_state(y_true_onehot, y_pred, sample_weight)
+    
+
+
+
+
+
+def build_base_model(backbone_name, activation_name='relu'):  
+    backbone_config = BACKBONE_CONFIGS.get(backbone_name)
+    if not backbone_config:
+        raise ValueError(f"Backbone '{backbone_name}' not found in configs.")
+
+    backbone_fn = backbone_config['model_fn']
+    IMG_SIZE    = backbone_config['image_size']
+
+    bb = backbone_fn(include_top=False, weights='imagenet', input_shape=(*IMG_SIZE, 3))
+    bb.trainable = False
+
+    inp = keras.Input(shape=(*IMG_SIZE, 3))
+    x   = bb(inp, training=False)
+    x   = layers.GlobalAveragePooling2D()(x)
+    x   = layers.BatchNormalization()(x)
+    if activation_name == 'leaky_relu':
+        x = layers.Dense(256)(x)
+        x = layers.LeakyReLU(negative_slope=0.01)(x)
+    else:
+        x = layers.Dense(256, activation=activation_name)(x)
+    x   = layers.Dropout(0.3)(x)
+    out = layers.Dense(NUM_CLASSES, activation='softmax')(x)
+
+    return keras.Model(inp, out), bb
+
+
+
+
+
+
+
+
+def run_phase1(model, backbone, train, val, backbone_name, optimizer_fn=None):
+    """Train frozen backbones"""
+    if optimizer_fn is None:
+        optimizer_fn = lambda: optimizers.Adam(learning_rate=PHASE1_LR)  # default
+
+    backbone.trainable = False
+    model.compile(
+        optimizer=optimizer_fn(),
+        loss='sparse_categorical_crossentropy',
+        metrics=make_metrics()
+    )
+    hist = model.fit(
+        train,
+        epochs=PHASE1_EPOCHS,
+        validation_data=val,
+        class_weight=class_weight_dict,
+        callbacks=make_callbacks(backbone_name, phase=1),
+        verbose=1
+    )
+    return hist, model.get_weights()
+
+
+def run_phase2(model, backbone, train, val, phase1_weights, backbone_name, n_unfreeze):
+    """Unfreeze the last n layers and do fine tuning"""
+    model.set_weights(phase1_weights)
+    backbone.trainable = True
+    for layer in backbone.layers[:-n_unfreeze]:
+        layer.trainable = False
+
+    model.compile(
+        optimizer=optimizers.Adam(learning_rate=PHASE2_LR),
+        loss='sparse_categorical_crossentropy',
+        metrics=make_metrics()
+    )
+    hist = model.fit(
+        train,
+        epochs=PHASE2_EPOCHS,
+        validation_data=val,
+        class_weight=class_weight_dict,
+        callbacks=make_callbacks(f"{backbone_name}_unfreeze{n_unfreeze}", phase=2),
+        verbose=1
+    )
+    return hist
+
+
+def make_callbacks(name, phase):
+    """Gera callbacks para uma dada fase e nome de experiência."""
+    es_patience  = ES_PATIENCE_P1  if phase == 1 else ES_PATIENCE_P2
+    lr_factor    = LR_FACTOR_P1    if phase == 1 else LR_FACTOR_P2
+    lr_patience  = LR_PATIENCE_P1  if phase == 1 else LR_PATIENCE_P2
+    lr_min       = LR_MIN_P1       if phase == 1 else LR_MIN_P2
+
+    # the strategy will be to use val loss to trigger early stopping, learn rate reeduction and model checkpointing,
+    # so for each backbone the best model will be the one with the lowest val loss but when comparing backbones we will look at val F1 and top-3 accuracy
+    # as the main comparison metrics, since they are more informative about the model's performance on imbalanced multi-class classification than val loss alone.
+
+    return [
+        callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=es_patience,
+            restore_best_weights=True,
+            verbose=1
+        ),
+        callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=lr_factor,
+            patience=lr_patience,
+            min_lr=lr_min,
+            verbose=1
+        ),
+        callbacks.ModelCheckpoint(
+            filepath=os.path.join("checkpoints", f"{name}_p{phase}_best.keras"),
+            monitor='val_loss',
+            save_best_only=True,
+            verbose=0
+        ),
+    ]
+
+
+def extract_best_metrics(hist, prefix):
+    """Extrai métricas na melhor epoch (menor val_loss). Prefixo: 'p1' ou 'p2'."""
+    best_epoch = np.argmin(hist.history['val_loss'])
+    return {
+        f'{prefix}_val_f1':   hist.history['val_macro_f1'][best_epoch],
+        f'{prefix}_train_f1': hist.history['macro_f1'][best_epoch],
+        f'{prefix}_val_loss': hist.history['val_loss'][best_epoch],
+        f'{prefix}_val_top3': hist.history.get('val_top3_accuracy', [None])[best_epoch],
+        f'{prefix}_overfit':  hist.history['macro_f1'][best_epoch] - hist.history['val_macro_f1'][best_epoch],
+        f'{prefix}_history':  hist.history,
+    }
