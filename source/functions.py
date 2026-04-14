@@ -23,7 +23,7 @@ def summarize(name, data, unit=""):
 
 
 # DEF FUNCTION TO RESIZE IMAGES IN DATASET
-def build_resized_ds(train_ds, val_ds, image_model_size):
+def build_resized_ds(train_ds, val_ds, image_model_size, AUTOTUNE):
     def resize_fn(image, label):
         image = tf.image.resize(image, [image_model_size, image_model_size])
         return image, label
@@ -34,7 +34,7 @@ def build_resized_ds(train_ds, val_ds, image_model_size):
     return train_ds, val_ds
 
 # DEF PREPROCESSING FUNCTION FOR DIFFERENT MODELS
-def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, batch_size=32):
+def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, batch_size=32):
     def apply_preprocess_img(image, label):
         image = preprocess_fn(image)
         return image, label
@@ -56,19 +56,15 @@ def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, batch_size=32
 
 
 
-class SparseF1Score(keras.metrics.F1Score):
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        # converte inteiros → one-hot antes de passar ao F1Score
-        y_true_onehot = tf.one_hot(tf.cast(y_true, tf.int32), depth=NUM_CLASSES)
-        return super().update_state(y_true_onehot, y_pred, sample_weight)
+
     
 
 
 
 
 
-def build_base_model(backbone_name, activation_name='relu'):  
-    backbone_config = BACKBONE_CONFIGS.get(backbone_name)
+def build_base_model(backbone_name, backbone_configs, num_classes, activation_name='relu'):  
+    backbone_config = backbone_configs.get(backbone_name)
     if not backbone_config:
         raise ValueError(f"Backbone '{backbone_name}' not found in configs.")
 
@@ -88,7 +84,7 @@ def build_base_model(backbone_name, activation_name='relu'):
     else:
         x = layers.Dense(256, activation=activation_name)(x)
     x   = layers.Dropout(0.3)(x)
-    out = layers.Dense(NUM_CLASSES, activation='softmax')(x)
+    out = layers.Dense(num_classes, activation='softmax')(x)
 
     return keras.Model(inp, out), bb
 
@@ -99,10 +95,10 @@ def build_base_model(backbone_name, activation_name='relu'):
 
 
 
-def run_phase1(model, backbone, train, val, backbone_name, optimizer_fn=None):
+def run_phase1(model, backbone, train, val, backbone_name, phase1_config, phase2_config, make_metrics, class_weight_dict, optimizer_fn=None):
     """Train frozen backbones"""
     if optimizer_fn is None:
-        optimizer_fn = lambda: optimizers.Adam(learning_rate=PHASE1_LR)  # default
+        optimizer_fn = lambda: optimizers.Adam(learning_rate=phase1_config['PHASE1_LR'])  # default
 
     backbone.trainable = False
     model.compile(
@@ -112,16 +108,16 @@ def run_phase1(model, backbone, train, val, backbone_name, optimizer_fn=None):
     )
     hist = model.fit(
         train,
-        epochs=PHASE1_EPOCHS,
+        epochs=phase1_config['PHASE1_EPOCHS'],
         validation_data=val,
         class_weight=class_weight_dict,
-        callbacks=make_callbacks(backbone_name, phase=1),
+        callbacks=make_callbacks(backbone_name, phase1_config=phase1_config, phase2_config=phase2_config, phase=1),
         verbose=1
     )
     return hist, model.get_weights()
 
 
-def run_phase2(model, backbone, train, val, phase1_weights, backbone_name, n_unfreeze):
+def run_phase2(model, backbone, train, val, phase1_weights, backbone_name, n_unfreeze, phase1_config, phase2_config, make_metrics, class_weight_dict):
     """Unfreeze the last n layers and do fine tuning"""
     model.set_weights(phase1_weights)
     backbone.trainable = True
@@ -129,27 +125,27 @@ def run_phase2(model, backbone, train, val, phase1_weights, backbone_name, n_unf
         layer.trainable = False
 
     model.compile(
-        optimizer=optimizers.Adam(learning_rate=PHASE2_LR),
+        optimizer=optimizers.Adam(learning_rate=phase2_config['PHASE2_LR']),
         loss='sparse_categorical_crossentropy',
         metrics=make_metrics()
     )
     hist = model.fit(
         train,
-        epochs=PHASE2_EPOCHS,
+        epochs=phase2_config['PHASE2_EPOCHS'],
         validation_data=val,
         class_weight=class_weight_dict,
-        callbacks=make_callbacks(f"{backbone_name}_unfreeze{n_unfreeze}", phase=2),
+        callbacks=make_callbacks(f"{backbone_name}_unfreeze{n_unfreeze}", phase1_config=phase1_config, phase2_config=phase2_config, phase=2),
         verbose=1
     )
     return hist
 
 
-def make_callbacks(name, phase):
+def make_callbacks(name, phase, phase1_config, phase2_config):
     """Gera callbacks para uma dada fase e nome de experiência."""
-    es_patience  = ES_PATIENCE_P1  if phase == 1 else ES_PATIENCE_P2
-    lr_factor    = LR_FACTOR_P1    if phase == 1 else LR_FACTOR_P2
-    lr_patience  = LR_PATIENCE_P1  if phase == 1 else LR_PATIENCE_P2
-    lr_min       = LR_MIN_P1       if phase == 1 else LR_MIN_P2
+    es_patience  = phase1_config['ES_PATIENCE_P1']  if phase == 1 else phase2_config['ES_PATIENCE_P2']
+    lr_factor    = phase1_config['LR_FACTOR_P1']    if phase == 1 else phase2_config['LR_FACTOR_P2']
+    lr_patience  = phase1_config['LR_PATIENCE_P1']  if phase == 1 else phase2_config['LR_PATIENCE_P2']
+    lr_min       = phase1_config['LR_MIN_P1']       if phase == 1 else phase2_config['LR_MIN_P2']
 
     # the strategy will be to use val loss to trigger early stopping, learn rate reeduction and model checkpointing,
     # so for each backbone the best model will be the one with the lowest val loss but when comparing backbones we will look at val F1 and top-3 accuracy
