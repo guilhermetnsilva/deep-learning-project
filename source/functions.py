@@ -185,3 +185,95 @@ def extract_best_metrics(hist, prefix):
         f'{prefix}_overfit':  hist.history['macro_f1'][best_epoch] - hist.history['val_macro_f1'][best_epoch],
         f'{prefix}_history':  hist.history,
     }
+
+
+
+# FUNCTIONS FOR AUGMENTATION + PREPROCESSING
+
+def apply_augmented_preprocess_ds(train_resized, val_resized, augmentation_model, preprocess_fn, AUTOTUNE, batch_size=32, seed=42):
+    def train_map(image, label):
+        image = tf.cast(image, tf.float32)
+        image = augmentation_model(image, training=True)
+        image = preprocess_fn(image)
+        return image, label
+
+    def val_map(image, label):
+        image = tf.cast(image, tf.float32)
+        image = preprocess_fn(image)
+        return image, label
+
+    t_ds = (train_resized
+            .shuffle(10000, seed=seed, reshuffle_each_iteration=True)
+            .map(train_map, num_parallel_calls=AUTOTUNE)
+            .batch(batch_size)
+            .prefetch(AUTOTUNE))
+
+    v_ds = (val_resized
+            .map(val_map, num_parallel_calls=AUTOTUNE)
+            .batch(batch_size)
+            .prefetch(AUTOTUNE))
+
+    return t_ds, v_ds
+
+
+
+
+def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model, n_unfreeze):
+    print(f'\n{"="*70}')
+    print(f'Backbone     : {backbone_name}')
+    print(f'Augmentation : {aug_name}')
+    print(f'Unfreeze     : {n_unfreeze}')
+    print(f'{"="*70}')
+
+    model, backbone = build_base_model(
+        backbone_name=backbone_name,
+        backbone_configs=AUG_BACKBONE_CONFIGS,
+        num_classes=NUM_CLASSES,
+        activation_name='swish'
+    )
+
+    train, val = apply_augmented_preprocess_ds(
+        train_resized=cfg['train_ds'],
+        val_resized=cfg['val_ds'],
+        augmentation_model=augmentation_model,
+        preprocess_fn=cfg['preprocess'],
+        AUTOTUNE=AUTOTUNE,
+        batch_size=BATCH_SIZE,
+        seed=SEED
+    )
+
+    hist1, phase1_weights = run_phase1(
+        model=model,
+        backbone=backbone,
+        train=train,
+        val=val,
+        backbone_name=f'{backbone_name}_{aug_name}',
+        phase1_config=PHASE1_CONFIG,
+        phase2_config=PHASE2_CONFIG,
+        make_metrics=make_metrics,
+        class_weight_dict=class_weight_dict
+    )
+
+    hist2 = run_phase2(
+        model=model,
+        backbone=backbone,
+        train=train,
+        val=val,
+        phase1_weights=phase1_weights,
+        backbone_name=f'{backbone_name}_{aug_name}',
+        n_unfreeze=n_unfreeze,
+        phase1_config=PHASE1_CONFIG,
+        phase2_config=PHASE2_CONFIG,
+        make_metrics=make_metrics,
+        class_weight_dict=class_weight_dict
+    )
+
+    results = {
+        'backbone': backbone_name,
+        'augmentation': aug_name,
+        'n_unfreeze': n_unfreeze,
+        **extract_best_metrics(hist1, 'p1'),
+        **extract_best_metrics(hist2, 'p2')
+    }
+
+    return results
