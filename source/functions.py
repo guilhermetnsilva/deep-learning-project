@@ -120,41 +120,69 @@ def make_metrics():
 
 
 
-def build_base_model(backbone_name, backbone_configs, num_classes, activation_name='relu'):  
-    """ Construct a base model using a specified backbone architecture and configuration. The backbone is loaded with pretrained ImageNet weights, and a custom classification head is added on top. 
-    The backbone layers are frozen to prevent training during the initial phase. The function returns the constructed Keras model and the backbone for potential later use (e.g., unfreezing).     
+
+def build_base_model(backbone_name, backbone_configs, num_classes,
+                     activation_name='relu', head_config=None):
+    """
+    Build a model with a pretrained backbone and a configurable classification head.
+ 
     Parameters:
-        - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
-        - backbone_configs: Dictionary mapping backbone names to their corresponding configuration details, including the model function and expected input image size.
-        - num_classes: Integer representing the number of output classes for the classification task.
-        - activation_name: String specifying the activation function to use in the classification head (default is 
-        'relu'). If 'leaky_relu' is specified, a LeakyReLU layer will be used instead of a standard activation function.
+    backbone_name : str
+        Key into backbone_configs identifying the backbone.
+    backbone_configs : dict
+        Dict mapping backbone names to their configuration (model_fn, image_size, ...).
+    num_classes : int
+        Number of output classes.
+    activation_name : str, default 'relu'
+        Activation function used in the Dense layers of the head.
+        Supports any Keras activation string, plus 'leaky_relu' (handled explicitly).
+    head_config : dict, optional
+        Head architecture configuration. Expected keys:
+            - 'dense_units': list[int]   neurons per Dense layer, in order
+            - 'dropout_rate': float      dropout rate applied after each Dense
+        If None, defaults to {'dense_units': [256], 'dropout_rate': 0.3},
+        which reproduces the original single-layer head with dropout only before
+        the softmax (baseline behavior for backward compatibility).
+ 
     Returns:
-        - model: A Keras Model instance representing the complete architecture with the backbone and classification head.
-        - bb: The backbone model instance, which is frozen and can be later unfrozen for fine-tuning.
+    (model, backbone) : tuple
+        model is the full keras.Model (backbone + head).
+        backbone is the raw backbone (kept trainable=False by default).
+
     """
     backbone_config = backbone_configs.get(backbone_name)
     if not backbone_config:
         raise ValueError(f"Backbone '{backbone_name}' not found in configs.")
-
+ 
     backbone_fn = backbone_config['model_fn']
     IMG_SIZE    = backbone_config['image_size']
-
+ 
+    # Default head: replicates original [256] + Dropout(0.3) before softmax
+    if head_config is None:
+        head_config = {'dense_units': [256], 'dropout_rate': 0.3}
+ 
+    dense_units  = head_config['dense_units']
+    dropout_rate = head_config['dropout_rate']
+ 
     bb = backbone_fn(include_top=False, weights='imagenet', input_shape=(*IMG_SIZE, 3))
     bb.trainable = False
-
+ 
     inp = keras.Input(shape=(*IMG_SIZE, 3))
     x   = bb(inp, training=False)
     x   = layers.GlobalAveragePooling2D()(x)
     x   = layers.BatchNormalization()(x)
-    if activation_name == 'leaky_relu':
-        x = layers.Dense(256)(x)
-        x = layers.LeakyReLU(negative_slope=0.01)(x)
-    else:
-        x = layers.Dense(256, activation=activation_name)(x)
-    x   = layers.Dropout(0.3)(x)
+ 
+    # Build the head: stack of Dense + (activation) + Dropout
+    for units in dense_units:
+        if activation_name == 'leaky_relu':
+            x = layers.Dense(units)(x)
+            x = layers.LeakyReLU(negative_slope=0.01)(x)
+        else:
+            x = layers.Dense(units, activation=activation_name)(x)
+        x = layers.Dropout(dropout_rate)(x)
+ 
     out = layers.Dense(num_classes, activation='softmax')(x)
-
+ 
     return keras.Model(inp, out), bb
 
 
