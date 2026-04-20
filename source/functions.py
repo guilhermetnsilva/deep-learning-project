@@ -15,12 +15,9 @@ def summarize(name, data, unit=""):
     """
     Print basic descriptive statistics for a numeric dataset.
     Parameters:
-        - name : Label used to identify the data being summarized.
-        It will be displayed in the output header.
-        - data : A sequence of numeric values (e.g., list, NumPy array)
-        for which the statistics will be computed.
-        - unit : Unit of measurement associated with the values (e.g., "px",
-        "MB", etc.). The unit is appended to the printed statistics.
+        - name : Label used to identify the data being summarized. It will be displayed in the output header.
+        - data : A sequence of numeric values (e.g., list, NumPy array) for which the statistics will be computed.
+        - unit : Unit of measurement associated with the values (e.g., "px", "MB", etc.). The unit is appended to the printed statistics.
         Default is an empty string.
     Returns: The function prints the summary statistics to the console.
     """
@@ -96,8 +93,7 @@ def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, bat
 
 class SparseF1Score(keras.metrics.F1Score):
     """ Custom F1 Score metric
-    This class extends the Keras F1Score metric to handle sparse integer labels by converting them to one-hot encoding before computing the F1 score. 
-    It allows for the use of sparse labels directly with the F1Score metric, which typically expects one-hot encoded labels."""
+    This class extends the Keras F1Score metric to handle sparse integer labels by converting them to one-hot encoding before computing the F1 score. """
     def update_state(self, y_true, y_pred, sample_weight=None):
         """Override the update_state method to convert sparse integer labels to one-hot encoding before computing the F1 score.
         Parameters:
@@ -125,11 +121,11 @@ def make_metrics():
 
 
 def build_base_model(backbone_name, backbone_configs, num_classes, activation_name='relu'):  
-    """ Construct a base model using a specified backbone architecture and configuration. The backbone is loaded with pretrained ImageNet weights, and a custom classification head is added on top. The backbone layers are frozen to prevent training during the initial phase. The function returns the constructed Keras model and the backbone for potential later use (e.g., unfreezing).     
+    """ Construct a base model using a specified backbone architecture and configuration. The backbone is loaded with pretrained ImageNet weights, and a custom classification head is added on top. 
+    The backbone layers are frozen to prevent training during the initial phase. The function returns the constructed Keras model and the backbone for potential later use (e.g., unfreezing).     
     Parameters:
         - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
-        - backbone_configs: Dictionary mapping backbone names to their corresponding configuration details, 
-        including the model function and expected input image size.
+        - backbone_configs: Dictionary mapping backbone names to their corresponding configuration details, including the model function and expected input image size.
         - num_classes: Integer representing the number of output classes for the classification task.
         - activation_name: String specifying the activation function to use in the classification head (default is 
         'relu'). If 'leaky_relu' is specified, a LeakyReLU layer will be used instead of a standard activation function.
