@@ -94,16 +94,33 @@ def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, bat
     return t_ds, v_ds
 
 
-
-
-
-
-
-
-
+class SparseF1Score(keras.metrics.F1Score):
+    """ Custom F1 Score metric
+    This class extends the Keras F1Score metric to handle sparse integer labels by converting them to one-hot encoding before computing the F1 score. 
+    It allows for the use of sparse labels directly with the F1Score metric, which typically expects one-hot encoded labels."""
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        """Override the update_state method to convert sparse integer labels to one-hot encoding before computing the F1 score.
+        Parameters:
+            - y_true: Tensor of true labels, expected to be in sparse integer format (e.g., class indices).
+            - y_pred: Tensor of predicted probabilities or logits for each class.
+            - sample_weight: Optional tensor of weights for each sample, used to weight the contribution of each sample to the overall metric. Default is None, which means all samples are equally weighted.
+        Returns: The method updates the internal state of the metric with the converted one-hot labels and predictions, and does not return a value. The F1 score can be retrieved later using the result() method of the metric instance.
+"""
+        # converte inteiros → one-hot antes de passar ao F1Score
+        y_true_onehot = tf.one_hot(tf.cast(y_true, tf.int32), depth=NUM_CLASSES)
+        return super().update_state(y_true_onehot, y_pred, sample_weight)
     
 
-
+# METRICS - USED IN MODEL EVALUATION AND COMPARISON
+def make_metrics():
+    """ Create a list of metrics to be used during model compilation and evaluation. The metrics include a custom SparseF1Score for macro-averaged F1 score and a SparseTopKCategoricalAccuracy for top-3 accuracy.
+     Returns:
+        A list of Keras metrics.
+     """
+    return [
+        SparseF1Score(average='macro', name='macro_f1'),
+        keras.metrics.SparseTopKCategoricalAccuracy(k=3, name='top3_accuracy'),
+    ]
 
 
 
@@ -293,6 +310,22 @@ def extract_best_metrics(hist, prefix):
 # FUNCTIONS FOR AUGMENTATION + PREPROCESSING
 
 def apply_augmented_preprocess_ds(train_resized, val_resized, augmentation_model, preprocess_fn, AUTOTUNE, batch_size=32, seed=42):
+    """Apply data augmentation and model-specific preprocessing to the training and validation datasets, and prepare them for training.
+    Parameters:
+        - train_resized: TensorFlow dataset containing resized training images and labels.
+        - val_resized: TensorFlow dataset containing resized validation images and labels.
+        - augmentation_model: A Keras model or function that applies data augmentation transformations to the input 
+        images. This model should be designed to perform augmentations during training.
+        - preprocess_fn: Preprocessing function associated with a specific pretrained model (e.g., EfficientNet, 
+        ConvNeXt). This function adapts the input images to the format expected by the model.
+        - AUTOTUNE: TensorFlow constant used to automatically tune the number of parallel calls and prefetch buffer 
+        size for better pipeline performance.
+        - batch_size: Number of samples per batch used during training. Default is 32.
+        - seed: Integer seed for random operations to ensure reproducibility of the data augmentation. Default is 42.
+    Returns:
+        - t_ds: The training dataset with augmented and preprocessed images, batched and prefetched for performance.
+        - v_ds: The validation dataset with preprocessed images (without augmentation), batched and prefetched for performance.
+    """
     def train_map(image, label):
         image = tf.cast(image, tf.float32)
         image = augmentation_model(image, training=True)
@@ -321,6 +354,19 @@ def apply_augmented_preprocess_ds(train_resized, val_resized, augmentation_model
 
 
 def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model, n_unfreeze):
+    """ Run a complete training experiment using a specified backbone architecture, data augmentation strategy, and number of layers to unfreeze for fine-tuning. 
+    Parameters:
+        - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
+        - cfg: A configuration dictionary containing necessary parameters and functions for building the model, preprocessing the data, 
+        and training (e.g., datasets, preprocessing functions, etc.).
+        - aug_name: String identifier for the augmentation strategy being applied, used for labeling results and checkpoints.
+        - augmentation_model: A Keras model or function that applies data augmentation transformations to the input images during training.
+        - n_unfreeze: Integer specifying the number of layers from the end of the backbone to unfreeze for fine-tuning in phase 2. 
+        The last n layers will be set to trainable, while the rest will remain frozen.
+    Returns:
+        - results: A dictionary containing the backbone name, augmentation name, number of layers unfrozen, and the best validation F1 score,
+        training F1 score at the best epoch, validation loss at the best epoch, validation top-3 accuracy (if available), and overfitting measure for both phase 1 and phase 2 of training.
+    """
     print(f'\n{"="*70}')
     print(f'Backbone     : {backbone_name}')
     print(f'Augmentation : {aug_name}')
