@@ -9,9 +9,23 @@ from keras.layers import LeakyReLU
 
 
 # DATA EXPLORATION FUNCTIONS
+# DATA EXPLORATION FUNCTIONS
 
 def summarize(name, data, unit=""):
+    """
+    Print basic descriptive statistics for a numeric dataset.
+    Parameters:
+        - name : Label used to identify the data being summarized.
+        It will be displayed in the output header.
+        - data : A sequence of numeric values (e.g., list, NumPy array)
+        for which the statistics will be computed.
+        - unit : Unit of measurement associated with the values (e.g., "px",
+        "MB", etc.). The unit is appended to the printed statistics.
+        Default is an empty string.
+    Returns: The function prints the summary statistics to the console.
+    """
     data = np.array(data)
+
     print(f"\n=== {name} ===")
     print(f"Min  : {data.min():.1f}{unit}")
     print(f"Max  : {data.max():.1f}{unit}")
@@ -21,9 +35,21 @@ def summarize(name, data, unit=""):
 
 # MODELING FUNCTIONS
 
-
 # DEF FUNCTION TO RESIZE IMAGES IN DATASET
 def build_resized_ds(train_ds, val_ds, image_model_size, AUTOTUNE):
+    """
+    Resize images from the training and validation datasets to match the input size required by the model.
+    Parameters:
+        - train_ds : TensorFlow dataset containing the training images and labels.
+        - val_ds : TensorFlow dataset containing the validation images and labels.
+        - image_model_size : Target size (height and width) that images should be resized to. 
+            The same value is used for both dimensions.
+        - AUTOTUNE : TensorFlow constant used to automatically tune the number of parallel calls 
+            during dataset mapping for better performance.
+    Returns:
+        - train_ds : Training dataset with resized images.
+        - val_ds : Validation dataset with resized images.
+    """
     def resize_fn(image, label):
         image = tf.image.resize(image, [image_model_size, image_model_size])
         return image, label
@@ -33,8 +59,24 @@ def build_resized_ds(train_ds, val_ds, image_model_size, AUTOTUNE):
 
     return train_ds, val_ds
 
+
 # DEF PREPROCESSING FUNCTION FOR DIFFERENT MODELS
 def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, batch_size=32):
+    """
+    Apply model-specific preprocessing to training and validation datasets, and prepare them for training.
+    Parameters:
+        - train_resized : TensorFlow dataset containing resized training images and labels.
+        - val_resized : TensorFlow dataset containing resized validation images and labels.
+        - preprocess_fn : Preprocessing function associated with a specific pretrained model 
+        (e.g., EfficientNet, ConvNeXt). This function adapts the input images to the format expected by the model.
+        - AUTOTUNE : TensorFlow constant used to automatically tune the number of parallel calls and 
+        prefetch buffer size for better pipeline performance.
+        - batch_size : Number of samples per batch used during training. Default is 32.
+    Returns:
+        - t_ds : Preprocessed, batched, and prefetched training dataset.
+        - v_ds : Preprocessed, batched, and prefetched validation dataset.
+    """
+
     def apply_preprocess_img(image, label):
         image = preprocess_fn(image)
         return image, label
@@ -43,10 +85,12 @@ def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, bat
             .map(apply_preprocess_img, num_parallel_calls=AUTOTUNE)
             .batch(batch_size)
             .prefetch(AUTOTUNE))
+
     v_ds = (val_resized
             .map(apply_preprocess_img, num_parallel_calls=AUTOTUNE)
             .batch(batch_size)
             .prefetch(AUTOTUNE))
+
     return t_ds, v_ds
 
 
@@ -64,6 +108,18 @@ def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, bat
 
 
 def build_base_model(backbone_name, backbone_configs, num_classes, activation_name='relu'):  
+    """ Construct a base model using a specified backbone architecture and configuration. The backbone is loaded with pretrained ImageNet weights, and a custom classification head is added on top. The backbone layers are frozen to prevent training during the initial phase. The function returns the constructed Keras model and the backbone for potential later use (e.g., unfreezing).     
+    Parameters:
+        - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
+        - backbone_configs: Dictionary mapping backbone names to their corresponding configuration details, 
+        including the model function and expected input image size.
+        - num_classes: Integer representing the number of output classes for the classification task.
+        - activation_name: String specifying the activation function to use in the classification head (default is 
+        'relu'). If 'leaky_relu' is specified, a LeakyReLU layer will be used instead of a standard activation function.
+    Returns:
+        - model: A Keras Model instance representing the complete architecture with the backbone and classification head.
+        - bb: The backbone model instance, which is frozen and can be later unfrozen for fine-tuning.
+    """
     backbone_config = backbone_configs.get(backbone_name)
     if not backbone_config:
         raise ValueError(f"Backbone '{backbone_name}' not found in configs.")
@@ -96,7 +152,23 @@ def build_base_model(backbone_name, backbone_configs, num_classes, activation_na
 
 
 def run_phase1(model, backbone, train, val, backbone_name, phase1_config, phase2_config, make_metrics, class_weight_dict, optimizer_fn=None):
-    """Train frozen backbones"""
+    """ Train the model with the backbone frozen.
+    Parameters:
+        - model: The Keras Model instance to be trained.
+        - backbone: The backbone model instance whose layers are frozen during this phase.
+        - train: The training dataset, prepared with augmentation and preprocessing.
+        - val: The validation dataset, prepared with augmentation and preprocessing.
+        - backbone_name: String identifier for the backbone architecture, used for naming callbacks and checkpoints.
+        - phase1_config: Dictionary containing configuration parameters specific to phase 1, such as learning rate, number of epochs,
+        early stopping patience, learning rate reduction factor, etc.
+        - phase2_config: Dictionary containing configuration parameters specific to phase 2, which may be needed for callbacks.
+        - make_metrics: A function that returns a list of metrics to be used during model compilation.
+        - class_weight_dict: A dictionary mapping class indices to weights, used to address class imbalance during training.
+        - optimizer_fn: Optional function that returns an optimizer instance. If None, a default Adam optimizer with a learning rate from phase1_config will be used.
+    Returns:
+        - hist: The training history object returned by model.fit(), containing details about the training process, including loss and metrics for each epoch.
+        - model.get_weights(): The weights of the model after training in phase 1, which can be used to initialize the model for phase 2 fine-tuning.
+    """
     if optimizer_fn is None:
         optimizer_fn = lambda: optimizers.Adam(learning_rate=phase1_config['PHASE1_LR'])  # default
 
@@ -118,7 +190,22 @@ def run_phase1(model, backbone, train, val, backbone_name, phase1_config, phase2
 
 
 def run_phase2(model, backbone, train, val, phase1_weights, backbone_name, n_unfreeze, phase1_config, phase2_config, make_metrics, class_weight_dict):
-    """Unfreeze the last n layers and do fine tuning"""
+    """Unfreeze the last n layers and do fine tuning.
+    Parameters:
+        - model: The Keras Model instance to be fine-tuned.
+        - backbone: The backbone model instance whose last n layers will be unfrozen for fine-tuning.
+        - train: The training dataset, prepared with augmentation and preprocessing.
+        - val: The validation dataset, prepared with augmentation and preprocessing.
+        - phase1_weights: The weights of the model obtained after training in phase 1, used to initialize the model before fine-tuning.
+        - backbone_name: String identifier for the backbone architecture, used for naming callbacks and checkpoints.
+        - n_unfreeze: Integer specifying the number of layers from the end of the backbone to unfreeze for fine-tuning. The last n layers will be set to trainable, while the rest will remain frozen.
+        - phase1_config: Dictionary containing configuration parameters specific to phase 1, which may be needed for callbacks.
+        - phase2_config: Dictionary containing configuration parameters specific to phase 2, such as learning rate, number of epochs, early stopping patience, learning rate reduction factor, etc.
+        - make_metrics: A function that returns a list of metrics to be used during model compilation.
+        - class_weight_dict: A dictionary mapping class indices to weights, used to address class imbalance during training.
+    Returns:
+        - hist: The training history object returned by model.fit(), containing details about the fine-tuning process, including loss and metrics for each epoch.
+    """
     model.set_weights(phase1_weights)
     backbone.trainable = True
     for layer in backbone.layers[:-n_unfreeze]:
@@ -141,7 +228,15 @@ def run_phase2(model, backbone, train, val, phase1_weights, backbone_name, n_unf
 
 
 def make_callbacks(name, phase, phase1_config, phase2_config):
-    """Gera callbacks para uma dada fase e nome de experiência."""
+    """Generate a list of Keras callbacks for training, including EarlyStopping, ReduceLROnPlateau, and ModelCheckpoint. The parameters for these callbacks are determined based on the current phase (1 or 2) and the corresponding configuration dictionaries.
+    Parameters:
+        - name: String used to identify the model and phase in the checkpoint filenames.
+        - phase: Integer (1 or 2) indicating the current training phase, which determines which configuration parameters to use for the callbacks.
+        - phase1_config: Dictionary containing configuration parameters specific to phase 1, such as early stopping patience, learning rate reduction factor, etc.
+        - phase2_config: Dictionary containing configuration parameters specific to phase 2, which may be needed for callbacks during fine-tuning.
+    Returns:
+        - A list of Keras callback instances configured according to the specified phase and parameters.
+    """
     es_patience  = phase1_config['ES_PATIENCE_P1']  if phase == 1 else phase2_config['ES_PATIENCE_P2']
     lr_factor    = phase1_config['LR_FACTOR_P1']    if phase == 1 else phase2_config['LR_FACTOR_P2']
     lr_patience  = phase1_config['LR_PATIENCE_P1']  if phase == 1 else phase2_config['LR_PATIENCE_P2']
@@ -175,7 +270,14 @@ def make_callbacks(name, phase, phase1_config, phase2_config):
 
 
 def extract_best_metrics(hist, prefix):
-    """Extrai métricas na melhor epoch (menor val_loss). Prefixo: 'p1' ou 'p2'."""
+    """Extract the best validation metrics from the training history based on the epoch with the lowest validation loss. 
+    Parameters:
+        - hist: The training history object returned by model.fit(), which contains the loss and metrics for each epoch.
+        - prefix: A string prefix used to label the metrics in the returned dictionary (e.g., 'p1' for phase 1 or 'p2' for phase 2).
+    Returns:
+        - A dictionary containing the best validation F1 score, training F1 score at the best epoch, validation loss 
+        at the best epoch, validation top-3 accuracy (if available), and an overfitting measure.
+    """
     best_epoch = np.argmin(hist.history['val_loss'])
     return {
         f'{prefix}_val_f1':   hist.history['val_macro_f1'][best_epoch],
