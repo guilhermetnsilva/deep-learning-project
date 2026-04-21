@@ -333,11 +333,11 @@ def extract_best_metrics(hist, prefix):
 
 # FUNCTIONS FOR AUGMENTATION + PREPROCESSING
 
-def apply_augmented_preprocess_ds(train_resized, val_resized, augmentation_model, preprocess_fn, AUTOTUNE, batch_size=32, seed=42):
+def apply_augmented_preprocess_ds(train_raw, val_raw, augmentation_model, preprocess_fn, image_size, AUTOTUNE, batch_size=32, seed=42):
     """Apply data augmentation and model-specific preprocessing to the training and validation datasets, and prepare them for training.
     Parameters:
-        - train_resized: TensorFlow dataset containing resized training images and labels.
-        - val_resized: TensorFlow dataset containing resized validation images and labels.
+        - train_raw: TensorFlow dataset containing raw training images and labels.
+        - val_raw: TensorFlow dataset containing raw validation images and labels.
         - augmentation_model: A Keras model or function that applies data augmentation transformations to the input 
         images. This model should be designed to perform augmentations during training.
         - preprocess_fn: Preprocessing function associated with a specific pretrained model (e.g., EfficientNet, 
@@ -361,16 +361,19 @@ def apply_augmented_preprocess_ds(train_resized, val_resized, augmentation_model
         image = preprocess_fn(image)
         return image, label
 
-    t_ds = (train_resized
+    t_aug = (train_raw
             .shuffle(10000, seed=seed, reshuffle_each_iteration=True)
             .map(train_map, num_parallel_calls=AUTOTUNE)
             .batch(batch_size)
             .prefetch(AUTOTUNE))
-
-    v_ds = (val_resized
+    
+    v_aug = (val_raw
             .map(val_map, num_parallel_calls=AUTOTUNE)
             .batch(batch_size)
             .prefetch(AUTOTUNE))
+    
+    t_resized, val_resized = build_resized_ds(t_aug, val_aug, image_size, AUTOTUNE)
+
 
     return t_ds, v_ds
 
@@ -409,6 +412,7 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
         val_resized=cfg['val_ds'],
         augmentation_model=augmentation_model,
         preprocess_fn=cfg['preprocess'],
+        image_size=cfg['image_size'][0],
         AUTOTUNE=AUTOTUNE,
         batch_size=BATCH_SIZE,
         seed=SEED
