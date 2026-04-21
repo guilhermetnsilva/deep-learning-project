@@ -402,7 +402,7 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
 
     model, backbone = build_base_model(
         backbone_name=backbone_name,
-        backbone_configs=AUG_BACKBONE_CONFIGS,
+        backbone_configs=cfg,
         num_classes=NUM_CLASSES,
         activation_name='swish'
     )
