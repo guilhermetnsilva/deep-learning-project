@@ -380,9 +380,11 @@ def apply_augmented_preprocess_ds(train_raw, val_raw, augmentation_model, prepro
 
 
 
-def run_augmentation_experiment(backbone_name, cfg, backbone_configs, aug_name, augmentation_model, n_unfreeze, num_classes, AUTOTUNE, batch_size, seed, class_weight_dict, make_metrics, phase1_config, phase2_config):
+def run_augmentation_experiment(train_raw, val_raw, backbone_name, cfg, backbone_configs, aug_name, augmentation_model, n_unfreeze, num_classes, AUTOTUNE, batch_size, seed, class_weight_dict, make_metrics, phase1_config, phase2_config):
     """ Run a complete training experiment using a specified backbone architecture, data augmentation strategy, and number of layers to unfreeze for fine-tuning. 
     Parameters:
+        - train_raw: The raw training dataset.
+        - val_raw: The raw validation dataset.
         - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
         - cfg: A configuration dictionary containing necessary parameters and functions for building the model, preprocessing the data, 
         and training (e.g., datasets, preprocessing functions, etc.).
@@ -408,8 +410,8 @@ def run_augmentation_experiment(backbone_name, cfg, backbone_configs, aug_name, 
     )
 
     train, val = apply_augmented_preprocess_ds(
-        train_resized=cfg['train_ds'],
-        val_resized=cfg['val_ds'],
+        train_raw=train_raw,
+        val_raw=val_raw,
         augmentation_model=augmentation_model,
         preprocess_fn=cfg['preprocess'],
         image_size=cfg['image_size'][0],
