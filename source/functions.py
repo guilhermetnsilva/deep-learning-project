@@ -372,7 +372,7 @@ def apply_augmented_preprocess_ds(train_raw, val_raw, augmentation_model, prepro
             .batch(batch_size)
             .prefetch(AUTOTUNE))
     
-    t_resized, val_resized = build_resized_ds(t_aug, val_aug, image_size, AUTOTUNE)
+    t_resized, val_resized = build_resized_ds(t_aug, v_aug, image_size, AUTOTUNE)
 
 
     return t_resized, val_resized
