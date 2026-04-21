@@ -380,7 +380,7 @@ def apply_augmented_preprocess_ds(train_raw, val_raw, augmentation_model, prepro
 
 
 
-def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model, n_unfreeze, num_classes, AUTOTUNE, batch_size, seed, class_weight_dict, make_metrics, phase1_config, phase2_config):
+def run_augmentation_experiment(backbone_name, cfg, backbone_configs, aug_name, augmentation_model, n_unfreeze, num_classes, AUTOTUNE, batch_size, seed, class_weight_dict, make_metrics, phase1_config, phase2_config):
     """ Run a complete training experiment using a specified backbone architecture, data augmentation strategy, and number of layers to unfreeze for fine-tuning. 
     Parameters:
         - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
@@ -402,7 +402,7 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
 
     model, backbone = build_base_model(
         backbone_name=backbone_name,
-        backbone_configs=cfg,
+        backbone_configs=backbone_configs,
         num_classes=num_classes,
         activation_name='swish'
     )
