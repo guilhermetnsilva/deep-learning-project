@@ -375,12 +375,12 @@ def apply_augmented_preprocess_ds(train_raw, val_raw, augmentation_model, prepro
     t_resized, val_resized = build_resized_ds(t_aug, val_aug, image_size, AUTOTUNE)
 
 
-    return t_ds, v_ds
+    return t_resized, val_resized
 
 
 
 
-def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model, n_unfreeze):
+def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model, n_unfreeze, num_classes, AUTOTUNE, batch_size, seed, class_weight_dict, make_metrics, phase1_config, phase2_config):
     """ Run a complete training experiment using a specified backbone architecture, data augmentation strategy, and number of layers to unfreeze for fine-tuning. 
     Parameters:
         - backbone_name: String identifier for the backbone architecture to use (e.g., 'EfficientNetB0', 'ConvNeXtTiny').
@@ -403,7 +403,7 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
     model, backbone = build_base_model(
         backbone_name=backbone_name,
         backbone_configs=cfg,
-        num_classes=NUM_CLASSES,
+        num_classes=num_classes,
         activation_name='swish'
     )
 
@@ -414,8 +414,8 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
         preprocess_fn=cfg['preprocess'],
         image_size=cfg['image_size'][0],
         AUTOTUNE=AUTOTUNE,
-        batch_size=BATCH_SIZE,
-        seed=SEED
+        batch_size=batch_size,
+        seed=seed
     )
 
     hist1, phase1_weights = run_phase1(
@@ -424,8 +424,8 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
         train=train,
         val=val,
         backbone_name=f'{backbone_name}_{aug_name}',
-        phase1_config=PHASE1_CONFIG,
-        phase2_config=PHASE2_CONFIG,
+        phase1_config=phase1_config,
+        phase2_config=phase2_config,
         make_metrics=make_metrics,
         class_weight_dict=class_weight_dict
     )
@@ -438,8 +438,8 @@ def run_augmentation_experiment(backbone_name, cfg, aug_name, augmentation_model
         phase1_weights=phase1_weights,
         backbone_name=f'{backbone_name}_{aug_name}',
         n_unfreeze=n_unfreeze,
-        phase1_config=PHASE1_CONFIG,
-        phase2_config=PHASE2_CONFIG,
+        phase1_config=phase1_config,
+        phase2_config=phase2_config,
         make_metrics=make_metrics,
         class_weight_dict=class_weight_dict
     )
