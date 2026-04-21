@@ -91,34 +91,6 @@ def apply_preprocess_ds(train_resized, val_resized, preprocess_fn, AUTOTUNE, bat
     return t_ds, v_ds
 
 
-class SparseF1Score(keras.metrics.F1Score):
-    """ Custom F1 Score metric
-    This class extends the Keras F1Score metric to handle sparse integer labels by converting them to one-hot encoding before computing the F1 score. """
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        """Override the update_state method to convert sparse integer labels to one-hot encoding before computing the F1 score.
-        Parameters:
-            - y_true: Tensor of true labels, expected to be in sparse integer format (e.g., class indices).
-            - y_pred: Tensor of predicted probabilities or logits for each class.
-            - sample_weight: Optional tensor of weights for each sample, used to weight the contribution of each sample to the overall metric. Default is None, which means all samples are equally weighted.
-        Returns: The method updates the internal state of the metric with the converted one-hot labels and predictions, and does not return a value. The F1 score can be retrieved later using the result() method of the metric instance.
-"""
-        # converte inteiros → one-hot antes de passar ao F1Score
-        y_true_onehot = tf.one_hot(tf.cast(y_true, tf.int32), depth=NUM_CLASSES)
-        return super().update_state(y_true_onehot, y_pred, sample_weight)
-    
-
-# METRICS - USED IN MODEL EVALUATION AND COMPARISON
-def make_metrics():
-    """ Create a list of metrics to be used during model compilation and evaluation. The metrics include a custom SparseF1Score for macro-averaged F1 score and a SparseTopKCategoricalAccuracy for top-3 accuracy.
-     Returns:
-        A list of Keras metrics.
-     """
-    return [
-        SparseF1Score(average='macro', name='macro_f1'),
-        keras.metrics.SparseTopKCategoricalAccuracy(k=3, name='top3_accuracy'),
-    ]
-
-
 
 
 def build_base_model(backbone_name, backbone_configs, num_classes,
