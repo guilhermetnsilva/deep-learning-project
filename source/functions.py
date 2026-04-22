@@ -567,7 +567,7 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
         epochs=max_epochs,
         validation_data=val,
         class_weight=class_weight_dict,
-        callbacks=make_callbacks(f'{backbone_name}_tuner_p1', phase=1),
+        callbacks=make_callbacks(f'{backbone_name}_tuner_p1', phase=1, phase1_config=phase1_config, phase2_config=phase2_config),
         verbose=1
     )
 
