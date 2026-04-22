@@ -10,7 +10,7 @@ import keras_tuner as kt
 
 
 # DATA EXPLORATION FUNCTIONS
-# DATA EXPLORATION FUNCTIONS
+
 
 def summarize(name, data, unit=""):
     """
@@ -433,9 +433,6 @@ def run_augmentation_experiment(train_raw, val_raw, backbone_name, cfg, backbone
 
 
 
-import keras_tuner as kt
-
-import keras_tuner as kt
 
 def build_tuner_model(hp, backbone_name, activation_name, n_dense_layers,
                       backbone_configs, num_classes, make_metrics):
@@ -496,13 +493,13 @@ def build_tuner_model(hp, backbone_name, activation_name, n_dense_layers,
     model.compile(
         optimizer=optimizers.Adam(learning_rate=lr_p1),
         loss='sparse_categorical_crossentropy',
-        metrics=make_metrics(num_classes=num_classes)
+        metrics=make_metrics()
     )
     return model
 
 
 def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
-                  n_dense_layers, backbone_configs, num_classes, class_weight_dict, make_metrics,
+                  n_dense_layers, backbone_configs, phase1_config, phase2_config, num_classes, class_weight_dict, make_metrics,
                   max_epochs=20, factor=3):
     """
     Run a full two-phase training pipeline with Hyperband hyperparameter search.
@@ -594,8 +591,14 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
     )
 
     hist_p1, phase1_weights = run_phase1(
-        best_model, best_bb, train, val,
+        model=best_model,
+        backbone = best_bb,
+        train = train, 
+        val = val,
         backbone_name=f'{backbone_name}_best',
+        phase1_config=phase1_config,
+        phase2_config=phase2_config,
+        make_metrics=make_metrics,
         class_weight_dict=class_weight_dict,
         optimizer_fn=lambda: optimizers.Adam(learning_rate=best_hp.get('lr_p1'))
     )
@@ -604,14 +607,20 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
     print(f'  Phase 2 — {backbone_name} — unfreeze {n_unfreeze}')
     print(f'{"="*60}')
 
-    lr_p2   = best_hp.get('lr_p1') / 10
+    lr_p2 = best_hp.get('lr_p1') / 10
+
+    # cria um config temporário com o lr_p2 calculado
+    phase2_config_tuned = {**phase2_config, 'PHASE2_LR': lr_p2}
+
     hist_p2 = run_phase2(
         best_model, best_bb, train, val,
         phase1_weights=phase1_weights,
         backbone_name=f'{backbone_name}_best',
         n_unfreeze=n_unfreeze,
-        class_weight_dict=class_weight_dict,
-        optimizer_fn=lambda: optimizers.Adam(learning_rate=lr_p2)
+        phase1_config=phase1_config,
+        phase2_config=phase2_config_tuned,   
+        make_metrics=make_metrics,
+        class_weight_dict=class_weight_dict
     )
 
     results = {
