@@ -433,7 +433,12 @@ def run_augmentation_experiment(train_raw, val_raw, backbone_name, cfg, backbone
 
 
 
-def build_tuner_model(hp, backbone_name, activation_name):
+import keras_tuner as kt
+
+import keras_tuner as kt
+
+def build_tuner_model(hp, backbone_name, activation_name, n_dense_layers,
+                      backbone_configs, num_classes, make_metrics):
     """
     Hypermodel builder for Keras Tuner — wraps build_base_model with a tunable head.
 
@@ -445,18 +450,22 @@ def build_tuner_model(hp, backbone_name, activation_name):
     hp : keras_tuner.HyperParameters
         Hyperparameter object provided by the tuner. Defines the following
         search space:
-            - dense_units_1 : int in {256, 512, 768}
-                Number of units in the first Dense layer.
-            - dense_units_2 : int in {128, 256, 512}
-                Number of units in the second Dense layer (pyramidal structure).
+            - dense_units_i : int, one per layer, chosen from a decreasing
+                subset of [512, 256, 128, 64] to enforce pyramidal structure.
             - dropout : float in [0.2, 0.5]
                 Dropout rate applied after each Dense layer.
             - lr_p1 : float in [1e-4, 1e-2] (log scale)
                 Learning rate for Phase 1 (frozen backbone).
     backbone_name : str
-        Key into BACKBONE_CONFIGS identifying the backbone to use.
+        Key into backbone_configs identifying the backbone to use.
     activation_name : str
         Activation function for the Dense layers (e.g. 'relu', 'swish').
+    n_dense_layers : int
+        Number of Dense layers in the classification head.
+    backbone_configs : dict
+        Dict mapping backbone names to their configuration (model_fn, image_size, ...).
+    num_classes : int
+        Number of output classes.
 
     Returns
     -------
@@ -464,18 +473,22 @@ def build_tuner_model(hp, backbone_name, activation_name):
         Compiled model ready for tuner.search().
         Note: backbone is not returned as Keras Tuner expects a single model.
     """
-    dense_units_1 = hp.Choice('dense_units_1', values=[256, 512, 768])
-    dense_units_2 = hp.Choice('dense_units_2', values=[128, 256, 512])
-    dropout       = hp.Float('dropout', min_value=0.2, max_value=0.5, step=0.1)
-    lr_p1         = hp.Float('lr_p1', min_value=1e-4, max_value=1e-2, sampling='log')
+    unit_choices = [512, 256, 128, 64]
+    dropout      = hp.Float('dropout', min_value=0.2, max_value=0.5, step=0.1)
+    lr_p1        = hp.Float('lr_p1', min_value=1e-4, max_value=1e-2, sampling='log')
+
+    dense_units = []
+    for i in range(n_dense_layers):
+        units = hp.Choice(f'dense_units_{i+1}', values=unit_choices[i:])
+        dense_units.append(units)
 
     model, _ = build_base_model(
         backbone_name=backbone_name,
-        backbone_configs=BACKBONE_CONFIGS,
-        num_classes=NUM_CLASSES,
+        backbone_configs=backbone_configs,
+        num_classes=num_classes,
         activation_name=activation_name,
         head_config={
-            'dense_units':  [dense_units_1, dense_units_2],
+            'dense_units':  dense_units,
             'dropout_rate': dropout
         }
     )
@@ -483,15 +496,13 @@ def build_tuner_model(hp, backbone_name, activation_name):
     model.compile(
         optimizer=optimizers.Adam(learning_rate=lr_p1),
         loss='sparse_categorical_crossentropy',
-        metrics=make_metrics()
+        metrics=make_metrics(num_classes=num_classes)
     )
     return model
 
 
-
-
-# MAIN FUNCTION TO RUN FULL HYPERBAND PIPELINE FOR A GIVEN BACKBONE
 def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
+                  n_dense_layers, backbone_configs, num_classes, class_weight_dict, make_metrics,
                   max_epochs=20, factor=3):
     """
     Run a full two-phase training pipeline with Hyperband hyperparameter search.
@@ -505,7 +516,7 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
     Parameters
     ----------
     backbone_name : str
-        Key into BACKBONE_CONFIGS identifying the backbone to use.
+        Key into backbone_configs identifying the backbone to use.
     activation_name : str
         Activation function for the Dense layers (e.g. 'relu', 'swish').
     train : tf.data.Dataset
@@ -514,9 +525,18 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
         Preprocessed and batched validation dataset.
     n_unfreeze : int
         Number of backbone layers to unfreeze during Phase 2 fine-tuning.
+    n_dense_layers : int
+        Number of Dense layers in the classification head.
+    backbone_configs : dict
+        Dict mapping backbone names to their configuration (model_fn, image_size, ...).
+    num_classes : int
+        Number of output classes.
+    class_weight_dict : dict
+        Dictionary mapping class indices to their weights for handling
+        class imbalance during training.
+    make_metrics : fuction that returns a list of metrics to be used during model compilation.
     max_epochs : int, default 20
         Maximum number of epochs any trial can receive during Hyperband search.
-        Trials eliminated early will receive fewer epochs.
     factor : int, default 3
         Hyperband reduction factor. At each round, the bottom (1 - 1/factor)
         fraction of trials is eliminated. Higher values are more aggressive.
@@ -534,7 +554,9 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
     print(f'{"="*60}')
 
     tuner = kt.Hyperband(
-        hypermodel=lambda hp: build_tuner_model(hp, backbone_name, activation_name),
+        hypermodel=lambda hp: build_tuner_model(
+            hp, backbone_name, activation_name, n_dense_layers,
+            backbone_configs, num_classes, make_metrics),
         objective=kt.Objective('val_macro_f1', direction='max'),
         max_epochs=max_epochs,
         factor=factor,
@@ -554,18 +576,19 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
 
     best_hp = tuner.get_best_hyperparameters(1)[0]
     print(f'\n  Best HPs for {backbone_name}:')
-    print(f'  dense_units_1 : {best_hp.get("dense_units_1")}')
-    print(f'  dense_units_2 : {best_hp.get("dense_units_2")}')
-    print(f'  dropout       : {best_hp.get("dropout")}')
-    print(f'  lr_p1         : {best_hp.get("lr_p1"):.6f}')
+    for i in range(n_dense_layers):
+        print(f'  dense_units_{i+1} : {best_hp.get(f"dense_units_{i+1}")}')
+    print(f'  dropout          : {best_hp.get("dropout")}')
+    print(f'  lr_p1            : {best_hp.get("lr_p1"):.6f}')
 
+    best_dense_units = [best_hp.get(f'dense_units_{i+1}') for i in range(n_dense_layers)]
     best_model, best_bb = build_base_model(
         backbone_name=backbone_name,
-        backbone_configs=BACKBONE_CONFIGS,
-        num_classes=NUM_CLASSES,
+        backbone_configs=backbone_configs,
+        num_classes=num_classes,
         activation_name=activation_name,
         head_config={
-            'dense_units':  [best_hp.get('dense_units_1'), best_hp.get('dense_units_2')],
+            'dense_units':  best_dense_units,
             'dropout_rate': best_hp.get('dropout')
         }
     )
@@ -573,6 +596,7 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
     hist_p1, phase1_weights = run_phase1(
         best_model, best_bb, train, val,
         backbone_name=f'{backbone_name}_best',
+        class_weight_dict=class_weight_dict,
         optimizer_fn=lambda: optimizers.Adam(learning_rate=best_hp.get('lr_p1'))
     )
 
@@ -586,6 +610,7 @@ def run_hyperband(backbone_name, activation_name, train, val, n_unfreeze,
         phase1_weights=phase1_weights,
         backbone_name=f'{backbone_name}_best',
         n_unfreeze=n_unfreeze,
+        class_weight_dict=class_weight_dict,
         optimizer_fn=lambda: optimizers.Adam(learning_rate=lr_p2)
     )
 
