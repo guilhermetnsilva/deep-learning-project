@@ -6,13 +6,13 @@ The project evolves from **Exploratory Data Analysis → Controlled Experiments 
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 > Large data folders (`wikiart/`, `wikiart_split/`), checkpoints, and outputs are excluded via `.gitignore`.
 
 ---
 
-## 🎯 Problem
+## Problem
 
 Given an image of a painting, predict **which of 23 artists** created it.
 
@@ -25,7 +25,7 @@ Given an image of a painting, predict **which of 23 artists** created it.
 
 ---
 
-## 🧠 Project Pipeline
+## Project Pipeline
 
 ### 1. Exploratory Data Analysis (`Data_Exploration.ipynb`)
 - Class imbalance analysis
@@ -57,7 +57,7 @@ Used to **design the pipeline**, not final results:
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 Transfer Learning with ImageNet-pretrained backbones:
 
@@ -65,7 +65,7 @@ The classification head is **fully configurable** (number of layers, units, drop
 
 ---
 
-## ⚙️ Training Strategy
+## Training Strategy
 
 ### Two-phase training
 
@@ -76,88 +76,7 @@ The classification head is **fully configurable** (number of layers, units, drop
 
 Implemented in:
 - `run_phase1(...)`
-- `run_phase2(...)` :contentReference[oaicite:1]{index=1}  
-
----
-
-## 🔬 Techniques
-
-- **Data augmentation**
-  - Flip, rotation, zoom
-  - Brightness, contrast, saturation
-  - Random Erasing
-
-- **Class weights** → handle imbalance  
-- **EarlyStopping + ReduceLROnPlateau**  
-- **Transfer Learning** (ImageNet)  
-- **Fine-tuning (partial unfreeze)**  
-- **Hyperparameter tuning (Keras Tuner - Hyperband)**  
-- **Test-Time Augmentation (TTA)**  
-
----
-
-## 🧪 Hyperparameter Tuning
-
-Hyperband is used to optimize:
-
-- Learning rate
-- Dropout
-- Number of Dense layers
-- Units per layer
-
-Implemented via:
-- `build_tuner_model(...)`
-- `run_hyperband(...)` :contentReference[oaicite:2]{index=2}  
-
----
-
-## 📊 Evaluation Metrics
-
-- **Macro F1-score (primary)** → handles class imbalance
-- Top-1 Accuracy
-- Top-3 Accuracy
-- Confusion Matrix (row-normalised)
-- Overfitting gap (train vs validation)
-
----
-
-## 🧩 Core Pipeline (functions.py)
-
-Main components:
-
-- Dataset processing:
-  - `build_resized_ds`
-  - `apply_preprocess_ds`
-  - `apply_augmented_preprocess_ds`
-
-- Model:
-  - `build_base_model`
-
-- Training:
-  - `run_phase1`
-  - `run_phase2`
-
-- Experiments:
-  - `run_augmentation_experiment`
-
-- Tuning:
-  - `run_hyperband`
-
-This modular design allows **reproducible and controlled experiments**.
-
----
-
-## 🛠️ Stack
-
-| Library | Version |
-|--------|--------|
-| Python | 3.x |
-| TensorFlow / Keras | 2.x / 3.x |
-| NumPy | — |
-| scikit-learn | — |
-| OpenCV | — |
-| Matplotlib / Seaborn | — |
-
+- `run_phase2(...)`
 ---
 
 ## 🚀 Getting Started
