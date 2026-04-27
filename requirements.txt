@@ -1,8 +1,22 @@
-tensorflow==2.20.0
-keras==3.13.2
+# === Core deep learning ===
+tensorflow==2.21.0
+tf_keras==2.21.0                # legacy Keras 2 backend (required for TFViTModel)
+keras==3.13.2                   # Keras 3 (used for CNN backbones)
+
+# === Transformers backbone (DeiT) ===
+transformers==4.57.6           
+
+# === Numerical & data ===
 numpy==2.4.2
+pandas==2.3.3
+
+# === Image processing ===
+Pillow==12.1.1
+opencv-python-headless==4.13.0.92
+
+# === Visualization ===
 matplotlib==3.10.8
 seaborn==0.13.2
+
+# === ML utilities ===
 scikit-learn==1.8.0
-opencv-python-headless==4.13.0.92
-Pillow==12.1.1
